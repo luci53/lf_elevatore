@@ -1,16 +1,26 @@
 fx_version 'cerulean'
---lua54 'yes'                                       --uncomment if using ox lib
 game 'gta5'
+lua54 'yes'
+
 author 'lucifer'
-description "A script to make your own elevatores in your fivem server "
+description 'Framework-agnostic elevator script for QBox, QBCore and ESX, powered by ox_lib'
+version '3.0.0'
 
---[[shared_script 
-'@ox_lib/init.lua']]                                        --uncomment if using ox lib
-
-
-
+shared_scripts {
+    '@ox_lib/init.lua',
+}
 
 client_scripts {
+    'client/bridge.lua',
+    'client/client.lua',
+}
+
+server_scripts {
     'config.lua',
-   'client/client.lua',
+    'server/bridge.lua',
+    'server/main.lua',
+}
+
+files {
+    'locales/*.json',
 }

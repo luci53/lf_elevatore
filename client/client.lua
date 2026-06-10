@@ -1,298 +1,309 @@
-ESX = nil
-QBCore = nil
-PlayerData = nil
-PlayerJob = nil
-PlayerGrade = nil
+lib.locale()
 
-CreateThread(function()
-	if Config.UseESX then
-		ESX = exports["es_extended"]:getSharedObject()
-		while not ESX.IsPlayerLoaded() do
-            		Wait(100)
-        	end
-	
-		PlayerData = ESX.GetPlayerData()
-		PlayerJob = PlayerData.job.name
-		PlayerGrade = PlayerData.job.grade
+local Settings, Elevators
+local targetResource = false
+local zones = {}    -- ox_target ids / qb-target zone names
+local points = {}   -- lib.points handles
+local moving = false
 
-		RegisterNetEvent("esx:setJob", function(job)
-			PlayerJob = job.name
-			PlayerGrade = job.grade
-		end)
+-- UX-only mirror of the server-side check, used to gray out locked floors
+local function hasFloorAccess(floor)
+    local needsJob = floor.jobs and next(floor.jobs) ~= nil
+    local needsGang = floor.gangs and next(floor.gangs) ~= nil
+    local needsItem = floor.items and next(floor.items) ~= nil
 
-	elseif Config.UseQBCore then
+    if not (needsJob or needsGang or needsItem) then return true end
 
-		QBCore = exports["qb-core"]:GetCoreObject()
-		 
-		CreateThread(function()
-			while true do
-				PlayerData = QBCore.Functions.GetPlayerData()
-				if PlayerData.citizenid ~= nil then
-					PlayerJob = PlayerData.job.name
-					PlayerGrade = PlayerData.job.grade.level
-					break
-				end
-				Wait(100)
-			end
-		end)
-
-		RegisterNetEvent("QBCore:Client:OnJobUpdate", function(job)
-			PlayerJob = job.name
-			PlayerGrade = job.grade.level
-		end)
-	end
-end)
-
-CreateThread(function()
-	for elevatorName, elevatorFloors in pairs(Config.Elevators) do
-		for index, floor in pairs(elevatorFloors) do
-			if Config.ThirdEyeName == 'ox_target' then
-				local info = {}
-				info.elevator = elevatorName
-				info.level = index
-				exports.ox_target:addBoxZone({
-				    coords = vec3(floor.coords.x, floor.coords.y, floor.coords.z),
-				    size = vec3(5, 4, 3),
-				    rotation = floor.heading,
-				    debug = drawZones,
-				    options = {
-					{
-					    name = tostring(elevatorName .. index),
-					    event = 'ox_target:debug',
-					    icon = "fas fa-hand-point-up",
-					    label = "Use Elevator From " .. floor.level,
-					    onSelect = function()
-						TriggerEvent("lf_elevator:showFloors",info)
-					    end
-					}
-				    }
-				})
-			else
-				exports[Config.ThirdEyeName]:AddBoxZone(elevatorName .. index, floor.coords, 5, 4, {
-					name = elevatorName,
-					heading = floor.heading,
-					debugPoly = false,
-					minZ = floor.coords.z - 1.5,
-					maxZ = floor.coords.z + 1.5
-				},
-				{
-					options = {
-						{
-							event = "lf_elevator:showFloors",
-							icon = "fas fa-hand-point-up",
-							label = "Use Elevator From " .. floor.level,
-							elevator = elevatorName,
-							level = index
-						},
-					},
-					distance = 1.5 
-				})
-			end
-		end
-	end
-
-	if Config.Notify.enabled then
-		local wasNotified = false
-		while true do
-			local sleep = 3000
-			local nearElevator = false
-			local playerCoords = GetEntityCoords(PlayerPedId())
-			for elevatorName, elevatorFloors in pairs(Config.Elevators) do
-				for index, floor in pairs(elevatorFloors) do
-					local distance = #(playerCoords - floor.coords)
-					if distance <= 10.0 then
-						sleep = 10
-						if distance <= Config.Notify.distance then
-							nearElevator = true
-							break
-						end
-					end
-				end
-			end
-			if nearElevator then
-				if not wasNotified then
-					NotifyHint()
-					wasNotified = true
-				end
-			else
-				wasNotified = false
-			end
-			Wait(sleep)
-		end
-	end
-
-end)
-
-CreateThread(function()
-    while Config.Use3DText do
-        local sleep = 2000
-        local playerCoords = GetEntityCoords(PlayerPedId())
-        for elevatorName, elevatorFloors in pairs(Config.Elevators) do
-            for index, floor in pairs(elevatorFloors) do
-                local distance = #(playerCoords - floor.coords)
-                if distance <= 10.0 then
-                    sleep = 100
-                    if distance <= 5 then
-			sleep = 0
-                        DrawText3Ds(floor.coords.x,floor.coords.y,floor.coords.z, "Press ~r~E~w~ to use Elevator From " .. floor.level)
-                        if IsControlJustReleased(0, 38) then
-                            local data = {}
-                            data.elevator = elevatorName
-                            data.level = index
-                            TriggerEvent('lf_elevator:showFloors', data)
-                        end
-                    end
-                end
+    local hasJob = false
+    if needsJob then
+        local job, grade = Bridge.GetJob()
+        for name, minGrade in pairs(floor.jobs) do
+            if job == name and (grade or 0) >= minGrade then
+                hasJob = true
+                break
             end
         end
-        Wait(sleep)
     end
-end)
 
-RegisterNetEvent("lf_elevator:showFloors", function(data)
-	local elevator = {}
-	local floor = {}
-	if Config.UseESX then
-		PlayerData = ESX.GetPlayerData()
-	elseif Config.UseQBCore then
-		PlayerData = QBCore.Functions.GetPlayerData()
-	end	
-	for index, floor in pairs(Config.Elevators[data.elevator]) do
-		if Config.NHMenu then
-			table.insert(elevator, {
-				header = floor.level,
-				context = floor.label,
-				disabled = isDisabled(index, floor, data),
-				event = "lf_elevator:movement",
-				args = { floor }
-			})
-		elseif Config.QBMenu then
-			table.insert(elevator, {
-				header = floor.level,
-				txt = floor.label,
-				disabled = isDisabled(index, floor, data),
-				params ={ 
-					event = "lf_elevator:movement",
-					args = floor
-					}
-			})
-		elseif Config.OXLib then
-			table.insert(elevator, {
-				label = floor.level..' - '..floor.label,
-				args = { value = floor.coords, value2 = isDisabled(index, floor, data)}
-			})
-		end
-	end
-	if Config.NHMenu then
-		TriggerEvent("nh-context:createMenu", elevator)
-	elseif Config.QBMenu then
-		TriggerEvent("qb-menu:client:openMenu", elevator)
-	elseif Config.OXLib then
-		lib.registerMenu({
-			id = 'elevator_ox',
-			title = 'Elevator Floor Selector',
-			options = elevator,
-			position = 'top-right',
-		}, function(selected, scrollIndex, args)
-			if not args.value2 then
-				TriggerEvent("lf_elevator:movement", args.value)
-			else
-				NotifyNoAccess()
-			end
-		end)
-		lib.showMenu('elevator_ox')
-	end
-
-end)
-
-RegisterNetEvent("lf_elevator:movement", function(arg)
-	local floor = {}
-	if Config.OXLib then
-		floor.coords = arg
-	else
-		floor = arg
-	end
-	local ped = PlayerPedId()
-	DoScreenFadeOut(1500)
-	while not IsScreenFadedOut() do
-		Wait(10)
-	end
-	RequestCollisionAtCoord(floor.coords.x, floor.coords.y, floor.coords.z)
-	while not HasCollisionLoadedAroundEntity(ped) do
-		Wait(0)
-	end
-	SetEntityCoords(ped, floor.coords.x, floor.coords.y, floor.coords.z, false, false, false, false)
-	SetEntityHeading(ped, floor.heading and floor.heading or 0.0)
-	Wait(Config.ElevatorWaitTime*1000)
-	DoScreenFadeIn(1500)
-end)
-
-function isDisabled(index, floor, data)
-	if index == data.level then return true end
-    if Config.UseESX then
-        PlayerData = ESX.GetPlayerData()
-    elseif Config.UseQBCore then
-        PlayerData = QBCore.Functions.GetPlayerData()
+    local hasGang = false
+    if needsGang then
+        local gang, grade = Bridge.GetGang()
+        for name, minGrade in pairs(floor.gangs) do
+            if gang == name and (grade or 0) >= minGrade then
+                hasGang = true
+                break
+            end
+        end
     end
-    local hasJob, hasItem = false, false
-	if floor.jobs ~= nil and next(floor.jobs) then
-		for jobName, gradeLevel in pairs(floor.jobs) do
-			if PlayerJob == jobName and PlayerGrade >= gradeLevel then
-				hasJob = true
-				break
-			end
-		end
-	end
-	if floor.items ~= nil and next(floor.items) then
-		if Config.UseESX then
-			for i = 1, #floor.items, 1 do
-				for k, v in ipairs(PlayerData.inventory) do
-					if v.name == floor.items[i] and v.count > 0 then
-						hasItem = true
-						break
-					end
-				end
-			end
-		elseif Config.UseQBCore then
-			for i = 1, #floor.items, 1 do
-				for slot, item in pairs(PlayerData.items) do
-					if PlayerData.items[slot] then
-						if item.name == floor.items[i] then
-							hasItem = true
-							break
-						end
-					end
-				end
-			end
-		end
-	end
-	if floor.jobs == nil and floor.items == nil then return false end 
-	return floor.jobAndItem and not (hasJob and hasItem) or not (hasJob or hasItem)
+
+    local hasItem = false
+    if needsItem then
+        for i = 1, #floor.items do
+            if Bridge.HasItem(floor.items[i]) then
+                hasItem = true
+                break
+            end
+        end
+    end
+
+    if floor.requireAll then
+        return (not needsJob or hasJob) and (not needsGang or hasGang) and (not needsItem or hasItem)
+    end
+
+    return (needsJob and hasJob) or (needsGang and hasGang) or (needsItem and hasItem)
 end
 
-function NotifyHint()
-	AddTextEntry('elevatorHelp', Config.Notify.message)
-	BeginTextCommandDisplayHelp('elevatorHelp')
-	EndTextCommandDisplayHelp(0, false, true, -1)
+local function playArriveSound()
+    local sound = Settings.sounds and Settings.sounds.arrive
+    if not sound then return end
+
+    if sound.type == 'native' then
+        PlaySoundFrontend(-1, sound.name, sound.set, true)
+    elseif sound.type == 'interact-sound' then
+        TriggerEvent('InteractSound_CL:PlayOnOne', sound.name, sound.volume or 0.3)
+    end
 end
 
-function NotifyNoAccess()
-	AddTextEntry('elevatorHelp', 'You cannot use this!')
-	BeginTextCommandDisplayHelp('elevatorHelp')
-	EndTextCommandDisplayHelp(0, false, true, -1)
+local function requestMove(elevatorName, fromIndex, toIndex, floor)
+    if moving then return end
+
+    local pin
+    if floor.pin then
+        local input = lib.inputDialog(locale('pin_title'), {
+            { type = 'input', label = locale('pin_label'), password = true, icon = 'key', required = true },
+        })
+        if not input then return end
+        pin = input[1]
+    end
+
+    local ok, reason = lib.callback.await('lf_elevatore:requestMove', false, elevatorName, fromIndex, toIndex, pin)
+    if not ok then
+        lib.notify({ description = locale(reason or 'invalid'), type = 'error' })
+    end
 end
 
-function DrawText3Ds(x,y,z, text)
-    local onScreen,_x,_y=World3dToScreen2d(x,y,z)
-    local px,py,pz=table.unpack(GetGameplayCamCoords())
-    SetTextScale(0.30, 0.30)
-    SetTextFont(4)
-    SetTextProportional(1)
-    SetTextColour(255, 255, 255, 215)
-    SetTextEntry('STRING')
-    SetTextCentre(1)
-    AddTextComponentString(text)
-    DrawText(_x,_y)
-    local factor = (string.len(text)) / 370
-    DrawRect(_x,_y+0.0125, 0.015+ factor, 0.03, 41, 11, 41, 68)
+local function openFloorMenu(elevatorName, currentIndex)
+    if moving then return end
+    local floors = Elevators and Elevators[elevatorName]
+    if not floors then return end
+
+    local options = {}
+    for index, floor in ipairs(floors) do
+        local isHere = index == currentIndex
+        local allowed = hasFloorAccess(floor)
+        options[#options + 1] = {
+            title = floor.level,
+            description = isHere and locale('you_are_here') or floor.label,
+            icon = isHere and 'location-dot' or (not allowed and 'lock' or (floor.pin and 'key' or 'elevator')),
+            disabled = isHere or not allowed,
+            onSelect = function()
+                requestMove(elevatorName, currentIndex, index, floor)
+            end,
+        }
+    end
+
+    lib.registerContext({
+        id = 'lf_elevator_menu',
+        title = floors.label or locale('menu_title', elevatorName),
+        options = options,
+    })
+    lib.showContext('lf_elevator_menu')
 end
+
+-- Kept for v1 compatibility (external triggers)
+RegisterNetEvent('lf_elevator:showFloors', function(data)
+    openFloorMenu(data.elevator, data.level)
+end)
+
+-- Zone / point construction -----------------------------------------------------
+
+local function teardown()
+    for i = 1, #zones do
+        if targetResource == 'ox_target' then
+            exports.ox_target:removeZone(zones[i], true)
+        elseif targetResource == 'qb-target' then
+            exports['qb-target']:RemoveZone(zones[i])
+        end
+    end
+    zones = {}
+
+    for i = 1, #points do
+        points[i]:remove()
+    end
+    points = {}
+
+    lib.hideTextUI()
+end
+
+local function buildAll()
+    for elevatorName, floors in pairs(Elevators) do
+        for index, floor in ipairs(floors) do
+            local zoneName = ('lf_elevator:%s:%d'):format(elevatorName, index)
+            local label = locale('use_elevator', floor.level)
+            local size = floor.size or vec3(5.0, 4.0, 3.0)
+
+            if targetResource == 'ox_target' then
+                zones[#zones + 1] = exports.ox_target:addBoxZone({
+                    coords = floor.coords,
+                    size = size,
+                    rotation = floor.heading or 0.0,
+                    debug = Settings.debug,
+                    options = {
+                        {
+                            name = zoneName,
+                            icon = 'fas fa-elevator',
+                            label = label,
+                            onSelect = function()
+                                openFloorMenu(elevatorName, index)
+                            end,
+                        },
+                    },
+                })
+            elseif targetResource == 'qb-target' then
+                exports['qb-target']:AddBoxZone(zoneName, floor.coords, size.x, size.y, {
+                    name = zoneName,
+                    heading = floor.heading or 0.0,
+                    debugPoly = Settings.debug,
+                    minZ = floor.coords.z - size.z / 2,
+                    maxZ = floor.coords.z + size.z / 2,
+                }, {
+                    options = {
+                        {
+                            icon = 'fas fa-elevator',
+                            label = label,
+                            action = function()
+                                openFloorMenu(elevatorName, index)
+                            end,
+                        },
+                    },
+                    distance = 2.0,
+                })
+                zones[#zones + 1] = zoneName
+            end
+
+            if Settings.useTextUI then
+                local point = lib.points.new({
+                    coords = floor.coords,
+                    distance = 10.0,
+                })
+                local shown = false
+
+                function point:nearby()
+                    if self.currentDistance <= Settings.interactDistance and not moving then
+                        if not shown then
+                            lib.showTextUI(locale('textui_prompt', floor.level))
+                            shown = true
+                        end
+                        if IsControlJustReleased(0, Settings.interactKey) then
+                            lib.hideTextUI()
+                            shown = false
+                            openFloorMenu(elevatorName, index)
+                        end
+                    elseif shown then
+                        lib.hideTextUI()
+                        shown = false
+                    end
+                end
+
+                function point:onExit()
+                    if shown then
+                        lib.hideTextUI()
+                        shown = false
+                    end
+                end
+
+                points[#points + 1] = point
+            end
+        end
+    end
+end
+
+-- Server events ------------------------------------------------------------------
+
+RegisterNetEvent('lf_elevatore:client:move', function(destination)
+    if moving then return end
+    moving = true
+
+    local ped = cache.ped
+    DoScreenFadeOut(Settings.fadeTime)
+    while not IsScreenFadedOut() do Wait(50) end
+
+    Wait(Settings.waitTime * 1000)
+
+    FreezeEntityPosition(ped, true)
+    RequestCollisionAtCoord(destination.coords.x, destination.coords.y, destination.coords.z)
+    SetEntityCoords(ped, destination.coords.x, destination.coords.y, destination.coords.z, false, false, false, false)
+    SetEntityHeading(ped, destination.heading or 0.0)
+
+    local timeout = GetGameTimer() + 5000
+    while not HasCollisionLoadedAroundEntity(ped) and GetGameTimer() < timeout do
+        Wait(50)
+    end
+    FreezeEntityPosition(ped, false)
+
+    playArriveSound()
+    DoScreenFadeIn(Settings.fadeTime)
+    moving = false
+end)
+
+RegisterNetEvent('lf_elevatore:client:refresh', function(elevators)
+    if not Settings then return end -- initial getData still pending
+    Elevators = elevators
+    teardown()
+    buildAll()
+end)
+
+RegisterNetEvent('lf_elevatore:client:notify', function(key, notifyType, ...)
+    lib.notify({ description = locale(key, ...), type = notifyType or 'inform' })
+end)
+
+RegisterNetEvent('lf_elevatore:client:floorDialog', function(floorNumber)
+    local input = lib.inputDialog(locale('creator_dialog_title', floorNumber), {
+        { type = 'input', label = locale('creator_field_level'), required = true, icon = 'signs-post' },
+        { type = 'input', label = locale('creator_field_label'), icon = 'tag' },
+        { type = 'input', label = locale('creator_field_pin'), description = locale('creator_field_pin_desc'), icon = 'key' },
+        { type = 'number', label = locale('creator_field_bucket'), description = locale('creator_field_bucket_desc'), icon = 'layer-group' },
+        { type = 'input', label = locale('creator_field_jobs'), description = 'police:0, ambulance:2', icon = 'briefcase' },
+        { type = 'input', label = locale('creator_field_gangs'), description = 'ballas:0', icon = 'people-group' },
+        { type = 'input', label = locale('creator_field_items'), description = 'keycard, vip_card', icon = 'box' },
+    })
+    if not input then return end
+
+    TriggerServerEvent('lf_elevatore:server:addFloor', {
+        level = input[1],
+        label = input[2],
+        pin = input[3],
+        bucket = input[4],
+        jobs = input[5],
+        gangs = input[6],
+        items = input[7],
+    })
+end)
+
+-- Startup -------------------------------------------------------------------------
+
+CreateThread(function()
+    local settings, elevators = lib.callback.await('lf_elevatore:getData', false)
+    Settings = settings
+    Elevators = elevators
+
+    targetResource = Settings.target
+    if targetResource == 'auto' then
+        if GetResourceState('ox_target') == 'started' then
+            targetResource = 'ox_target'
+        elseif GetResourceState('qb-target') == 'started' then
+            targetResource = 'qb-target'
+        else
+            targetResource = false
+        end
+    elseif targetResource and GetResourceState(targetResource) ~= 'started' then
+        print(('^3[lf_elevatore] Configured target "%s" is not running^0'):format(targetResource))
+        targetResource = false
+    end
+
+    if not targetResource and not Settings.useTextUI then
+        print('^3[lf_elevatore] Both targeting and TextUI are disabled - elevators cannot be used^0')
+    end
+
+    buildAll()
+end)
