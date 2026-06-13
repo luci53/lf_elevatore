@@ -13,6 +13,8 @@
     "wrong_pin": "Wrong PIN code",
     "locked": "This elevator is out of service",
     "closed": "This floor is closed right now",
+    "admin_no_perm": "You don't have permission to manage elevators",
+    "picker_hint": "[E] Set position    [Backspace] Cancel",
     "creator_usage": "Usage: /elevator create|add|save|cancel|delete|list [name]",
     "creator_need_name": "You must provide an elevator name",
     "creator_name_taken": "An elevator named '%s' already exists",

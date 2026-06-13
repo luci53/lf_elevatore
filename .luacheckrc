@@ -37,14 +37,16 @@ read_globals = {
     'GetPlayers', 'GetPlayerPed', 'GetEntityCoords', 'GetEntityHeading',
     'GetPlayerRoutingBucket', 'SetPlayerRoutingBucket', 'GetPlayerName',
     'GetPlayerIdentifierByType', 'GetPlayerIdentifiers',
-    'GetNumPlayerIdentifiers', 'GetPlayerIdentifier', 'source',
+    'GetNumPlayerIdentifiers', 'GetPlayerIdentifier', 'IsPlayerAceAllowed',
+    'source',
 
     -- Client natives used
     'PlayerPedId', 'PlayerId', 'DoScreenFadeOut', 'DoScreenFadeIn',
     'IsScreenFadedOut', 'FreezeEntityPosition', 'RequestCollisionAtCoord',
     'HasCollisionLoadedAroundEntity', 'SetEntityCoords', 'SetEntityHeading',
     'IsControlJustReleased', 'PlaySoundFrontend', 'ShakeGameplayCam',
-    'StopGameplayCamShaking',
+    'StopGameplayCamShaking', 'DrawMarker',
+    'SetNuiFocus', 'SendNUIMessage', 'RegisterNUICallback',
 
     -- Libraries / framework
     'lib', 'cache', 'exports', 'GetInvokingResource',

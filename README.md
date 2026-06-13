@@ -17,7 +17,7 @@ Create your own elevators anywhere on your FiveM server — in the config **or l
 - 🔧 **Maintenance lock** — take an elevator out of service live (`/elevator lock`, or via export for heists)
 - 👥 **Group travel** — players standing next to you ride along
 - 🌐 **Routing bucket support** — send players into instanced interiors per floor
-- 🛠️ **In-game creator/editor** — build & edit elevators with commands, saved to JSON
+- 🖥️ **In-game admin panel (NUI)** — create, edit, delete, lock and configure everything in a UI; no config editing
 - 🧩 **Developer API** — exports + events to drive elevators from other resources
 - 📝 **Usage logging** — Discord webhook and/or ox_lib logger
 - 🔔 Arrival sound + camera shake (immersion), optional travel sound
@@ -41,23 +41,36 @@ Supported frameworks (auto-detected): **qbx_core**, **ox_core**, **qb-core**, **
 4. Configure elevators in `config.lua` — or just use `/elevator create` in-game
 5. Restart your server
 
-## In-game creator (admin)
+## In-game admin panel
 
-Requires the ace permission set in `Config.AdminGroup` (default `group.admin`).
+Type **`/elevator`** (no arguments) to open the admin panel. Requires the ace permission
+set in `Config.AdminGroup` (default `group.admin`). Everything is managed here — no need to
+touch `config.lua`:
+
+- **Create / edit / delete** elevators and their floors in a card-based UI
+- **Floor editor** for every option: position, PIN, bucket, jobs, gangs, items (+consume),
+  owners, opening hours, require-all, reorder floors
+- **Set positions in-world** — "At my position" grabs your current spot, or "📍 Pick" drops a
+  marker you place and confirm with **[E]**
+- **Lock / unlock** elevators (maintenance), **teleport** to any floor
+- **Settings tab** — tweak travel time, fades, group travel, sounds/shake, logging, etc. live
+
+Config elevators can be edited and deleted too: editing one saves an override, deleting one
+hides it. Everything is persisted to `data/elevators.json` + `data/settings.json` and applies
+to all players instantly.
+
+<details>
+<summary>Command-line equivalents (still available)</summary>
 
 | Command | Description |
 |---------|-------------|
-| `/elevator create <name>` | Start building a new elevator |
-| `/elevator add` | Add a floor at your current position (dialog: name, PIN, jobs, owners, hours, bucket…) |
-| `/elevator removefloor <n>` | Remove floor number `n` from the current session |
-| `/elevator save` | Save the elevator (needs at least 2 floors) — live for everyone instantly |
-| `/elevator edit <name>` | Load a saved elevator back into a session to add/remove floors |
-| `/elevator cancel` | Discard the current session |
-| `/elevator delete <name>` | Delete an elevator created in-game |
-| `/elevator lock <name>` / `unlock <name>` | Take an elevator out of / back into service |
-| `/elevator list` | List all elevators (and their lock state) |
+| `/elevator` | Open the admin panel |
+| `/elevator create <name>` · `add` · `save` · `cancel` | Session-based builder |
+| `/elevator delete <name>` | Delete an elevator |
+| `/elevator lock <name>` / `unlock <name>` | Maintenance lock |
+| `/elevator list` | List all elevators |
 
-In-game elevators are stored in `data/elevators.json` and survive restarts.
+</details>
 
 ## Configuration
 

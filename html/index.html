@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>lf_elevatore admin</title>
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+    <div id="app" class="hidden">
+        <div class="panel">
+            <header class="topbar">
+                <div class="brand">
+                    <span class="logo">🛗</span>
+                    <div>
+                        <h1>Elevator Admin</h1>
+                        <span class="sub">framework: <b id="fw">-</b></span>
+                    </div>
+                </div>
+                <div class="tabs">
+                    <button class="tab active" data-tab="elevators">Elevators</button>
+                    <button class="tab" data-tab="settings">Settings</button>
+                </div>
+                <button id="closeBtn" class="icon-btn" title="Close (Esc)">✕</button>
+            </header>
+
+            <!-- ELEVATORS TAB -->
+            <section id="tab-elevators" class="tab-page">
+                <div class="toolbar">
+                    <input id="search" type="text" placeholder="Search elevators…" />
+                    <button id="newBtn" class="btn primary">＋ New elevator</button>
+                </div>
+                <div id="grid" class="grid"></div>
+                <div id="empty" class="empty hidden">No elevators yet — create one to get started.</div>
+            </section>
+
+            <!-- EDITOR -->
+            <section id="editor" class="tab-page hidden">
+                <div class="editor-head">
+                    <button id="backBtn" class="btn ghost">← Back</button>
+                    <h2 id="editorTitle">Edit elevator</h2>
+                    <span id="editorSource" class="badge"></span>
+                </div>
+
+                <div class="form-row two">
+                    <label>Name
+                        <input id="elName" type="text" placeholder="Hospital" />
+                    </label>
+                    <label>Menu title
+                        <input id="elLabel" type="text" placeholder="Pillbox Hospital" />
+                    </label>
+                </div>
+                <label class="check"><input id="elGroupTravel" type="checkbox" /> Allow group travel (nearby players ride along)</label>
+
+                <div class="floors-head">
+                    <h3>Floors</h3>
+                    <div class="floor-add">
+                        <button id="addHere" class="btn small">＋ At my position</button>
+                        <button id="addPick" class="btn small">📍 Pick in world</button>
+                    </div>
+                </div>
+                <div id="floorList" class="floor-list"></div>
+
+                <div class="editor-actions">
+                    <button id="cancelEdit" class="btn ghost">Cancel</button>
+                    <button id="saveEl" class="btn primary">💾 Save elevator</button>
+                </div>
+            </section>
+
+            <!-- SETTINGS TAB -->
+            <section id="tab-settings" class="tab-page hidden">
+                <div id="settingsForm" class="settings"></div>
+                <div class="editor-actions">
+                    <button id="saveSettings" class="btn primary">💾 Save settings</button>
+                </div>
+            </section>
+        </div>
+
+        <!-- FLOOR MODAL -->
+        <div id="floorModal" class="modal hidden">
+            <div class="modal-box">
+                <div class="modal-head">
+                    <h3 id="floorModalTitle">Floor</h3>
+                    <button id="floorClose" class="icon-btn">✕</button>
+                </div>
+                <div class="modal-body" id="floorForm"></div>
+                <div class="modal-actions">
+                    <button id="floorCancel" class="btn ghost">Cancel</button>
+                    <button id="floorSave" class="btn primary">Done</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

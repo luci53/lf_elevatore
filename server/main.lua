@@ -1,27 +1,67 @@
-local SAVE_FILE = 'data/elevators.json'
 local resourceName = GetCurrentResourceName()
+local SAVE_FILE = 'data/elevators.json'    -- saved elevators (map name -> {label,floors})
+local SETTINGS_FILE = 'data/settings.json' -- { overrides = {...}, hidden = { name = true } }
 
 local elevators = {}        -- runtime data (config + saved + api merged, full detail incl. PINs)
 local clientElevators = {}  -- sanitized copy sent to clients (PINs/owners reduced to booleans)
-local savedElevators = {}   -- elevators created in-game, persisted to SAVE_FILE
+local sourceOf = {}         -- name -> 'config' | 'saved' | 'api'
+local savedElevators = {}   -- elevators created/edited in-game, persisted to SAVE_FILE
 local apiElevators = {}      -- elevators registered at runtime via exports (not persisted)
+local hidden = {}           -- config elevator names suppressed in-game
 local locked = {}           -- maintenance lock state, keyed by elevator name
-local sessions = {}         -- active /elevator creation/edit sessions, keyed by source
+local overrides = {}        -- persisted runtime setting overrides
+local sessions = {}         -- legacy /elevator command sessions, keyed by source
 local lastUse = {}          -- per-player cooldown timestamps
 
-local moveCooldown = Config.ElevatorWaitTime * 1000 + Config.FadeTime * 2
+-- Effective settings ---------------------------------------------------------
+-- Settings the admin panel is allowed to tweak live; everything else stays in
+-- config.lua. S is recomputed whenever overrides change.
+local S
 
-local settings = {
-    target = Config.Target,
-    useTextUI = Config.UseTextUI,
-    interactKey = Config.InteractKey,
-    interactDistance = Config.InteractDistance,
-    waitTime = Config.ElevatorWaitTime,
-    fadeTime = Config.FadeTime,
-    debug = Config.Debug,
-    sounds = Config.Sounds,
-    shake = Config.ArrivalShake,
-}
+local function effective()
+    local o = overrides
+    local function pick(key, default)
+        if o[key] ~= nil then return o[key] end
+        return default
+    end
+    return {
+        target = Config.Target,
+        useTextUI = pick('useTextUI', Config.UseTextUI),
+        interactKey = Config.InteractKey,
+        interactDistance = pick('interactDistance', Config.InteractDistance),
+        waitTime = pick('waitTime', Config.ElevatorWaitTime),
+        fadeTime = pick('fadeTime', Config.FadeTime),
+        debug = pick('debug', Config.Debug),
+        shake = pick('shake', Config.ArrivalShake),
+        sounds = Config.Sounds,
+        groupTravelEnabled = pick('groupTravelEnabled', Config.GroupTravel.enabled),
+        groupTravelRadius = pick('groupTravelRadius', Config.GroupTravel.radius),
+        loggingEnabled = pick('loggingEnabled', Config.Logging and Config.Logging.enabled or false),
+        logAllMoves = pick('logAllMoves', Config.Logging and Config.Logging.logAllMoves or false),
+        useOxLib = Config.Logging and Config.Logging.useOxLib or false,
+        webhook = pick('webhook', Config.Logging and Config.Logging.webhook or ''),
+    }
+end
+S = effective()
+
+-- Client only needs the presentation-related settings.
+local function clientSettings()
+    return {
+        target = S.target,
+        useTextUI = S.useTextUI,
+        interactKey = S.interactKey,
+        interactDistance = S.interactDistance,
+        waitTime = S.waitTime,
+        fadeTime = S.fadeTime,
+        debug = S.debug,
+        sounds = S.sounds,
+        shake = S.shake,
+    }
+end
+
+local function moveCooldown()
+    return S.waitTime * 1000 + S.fadeTime * 2
+end
 
 local function notify(source, key, notifyType, ...)
     TriggerClientEvent('lf_elevatore:client:notify', source, key, notifyType, ...)
@@ -73,56 +113,69 @@ local function sanitizeElevators()
     return out
 end
 
----Merge a { label, groupTravel, floors = {...} } source into the runtime table.
-local function addSource(name, src)
-    if elevators[name] then
-        print(('^3[lf_elevatore] Elevator "%s" is defined more than once; later definition wins^0'):format(name))
-    end
+local function addSource(name, src, kind)
     local entry = { label = src.label, groupTravel = src.groupTravel }
     for i, floor in ipairs(src.floors) do
         entry[i] = runtimeFloor(floor)
     end
     elevators[name] = entry
+    sourceOf[name] = kind
 end
 
 local function rebuildElevators()
     elevators = {}
+    sourceOf = {}
 
-    -- Config elevators are array-style with optional label/groupTravel keys.
     for name, floors in pairs(Config.Elevators) do
-        addSource(name, { label = floors.label, groupTravel = floors.groupTravel, floors = floors })
+        if not hidden[name] and not savedElevators[name] then
+            addSource(name, { label = floors.label, groupTravel = floors.groupTravel, floors = floors }, 'config')
+        end
     end
     for name, saved in pairs(savedElevators) do
-        addSource(name, saved)
+        addSource(name, saved, 'saved')
     end
     for name, api in pairs(apiElevators) do
-        addSource(name, api)
+        addSource(name, api, 'api')
     end
 
     clientElevators = sanitizeElevators()
 end
 
-local function loadSaved()
+local function loadStore()
     local raw = LoadResourceFile(resourceName, SAVE_FILE)
     if raw and raw ~= '' then
         local ok, data = pcall(json.decode, raw)
+        if ok and type(data) == 'table' then savedElevators = data end
+    end
+
+    local sraw = LoadResourceFile(resourceName, SETTINGS_FILE)
+    if sraw and sraw ~= '' then
+        local ok, data = pcall(json.decode, sraw)
         if ok and type(data) == 'table' then
-            savedElevators = data
-        else
-            print(('^1[lf_elevatore] Could not parse %s - starting with config elevators only^0'):format(SAVE_FILE))
+            overrides = type(data.overrides) == 'table' and data.overrides or {}
+            hidden = type(data.hidden) == 'table' and data.hidden or {}
         end
     end
+    S = effective()
 end
 
 local function persistSaved()
     SaveResourceFile(resourceName, SAVE_FILE, json.encode(savedElevators), -1)
 end
 
+local function persistSettings()
+    SaveResourceFile(resourceName, SETTINGS_FILE, json.encode({ overrides = overrides, hidden = hidden }), -1)
+end
+
 local function broadcastRefresh()
     TriggerClientEvent('lf_elevatore:client:refresh', -1, clientElevators)
 end
 
-loadSaved()
+local function broadcastSettings()
+    TriggerClientEvent('lf_elevatore:client:settings', -1, clientSettings())
+end
+
+loadStore()
 rebuildElevators()
 
 -- Access validation ----------------------------------------------------------
@@ -141,7 +194,7 @@ local function withinHours(hours)
     if hours.open < hours.close then
         return h >= hours.open and h < hours.close
     end
-    return h >= hours.open or h < hours.close -- overnight window
+    return h >= hours.open or h < hours.close
 end
 
 local function matchesGroups(source, groupTable)
@@ -199,22 +252,21 @@ end
 -- Logging --------------------------------------------------------------------
 
 local function logUsage(source, elevatorName, toFloor)
-    local cfg = Config.Logging
-    if not cfg or not cfg.enabled then return end
+    if not S.loggingEnabled then return end
 
     local restricted = toFloor.pin or toFloor.jobs or toFloor.gangs or toFloor.items or toFloor.owners
-    if not cfg.logAllMoves and not restricted then return end
+    if not S.logAllMoves and not restricted then return end
 
     local pName = GetPlayerName(source) or 'unknown'
     local msg = ('%s [%s] used elevator "%s" -> %s%s'):format(
         pName, source, elevatorName, toFloor.level, restricted and ' (restricted)' or '')
 
-    if cfg.useOxLib then
+    if S.useOxLib then
         lib.logger(source, 'elevator', msg, ('elevator:%s'):format(elevatorName), ('floor:%s'):format(toFloor.level))
     end
 
-    if cfg.webhook and cfg.webhook ~= '' then
-        PerformHttpRequest(cfg.webhook, function() end, 'POST', json.encode({
+    if S.webhook and S.webhook ~= '' then
+        PerformHttpRequest(S.webhook, function() end, 'POST', json.encode({
             username = 'lf_elevatore',
             embeds = { {
                 title = 'Elevator used',
@@ -228,7 +280,7 @@ end
 -- Movement -------------------------------------------------------------------
 
 lib.callback.register('lf_elevatore:getData', function()
-    return settings, clientElevators
+    return clientSettings(), clientElevators
 end)
 
 lib.callback.register('lf_elevatore:requestMove', function(source, name, fromIndex, toIndex, pin)
@@ -241,7 +293,7 @@ lib.callback.register('lf_elevatore:requestMove', function(source, name, fromInd
     if not fromFloor or not toFloor or fromIndex == toIndex then return false, 'invalid' end
 
     local now = GetGameTimer()
-    if lastUse[source] and now - lastUse[source] < moveCooldown then
+    if lastUse[source] and now - lastUse[source] < moveCooldown() then
         return false, 'too_fast'
     end
 
@@ -260,7 +312,6 @@ lib.callback.register('lf_elevatore:requestMove', function(source, name, fromInd
         return false, reason
     end
 
-    -- Consume an access item if the floor is configured to (only on success).
     if toFloor.consumeItem and toFloor.items and next(toFloor.items) then
         local item = firstOwnedItem(source, toFloor.items)
         if item and not Bridge.RemoveItem(source, item, 1) then
@@ -270,15 +321,14 @@ lib.callback.register('lf_elevatore:requestMove', function(source, name, fromInd
 
     lastUse[source] = now
 
-    -- The requester validated access; players standing next to them ride along.
     local passengers = { source }
-    if Config.GroupTravel.enabled and floors.groupTravel ~= false then
+    if S.groupTravelEnabled and floors.groupTravel ~= false then
         local myBucket = GetPlayerRoutingBucket(source)
         for _, sid in ipairs(GetPlayers()) do
             local id = tonumber(sid)
             if id ~= source and GetPlayerRoutingBucket(id) == myBucket then
                 local pedCoords = GetEntityCoords(GetPlayerPed(id))
-                if #(pedCoords - coords) <= Config.GroupTravel.radius then
+                if #(pedCoords - coords) <= S.groupTravelRadius then
                     passengers[#passengers + 1] = id
                 end
             end
@@ -295,8 +345,7 @@ lib.callback.register('lf_elevatore:requestMove', function(source, name, fromInd
     for i = 1, #passengers do
         local id = passengers[i]
         if toFloor.bucket then
-            -- Switch buckets once the passenger's screen has faded to black.
-            SetTimeout(Config.FadeTime, function()
+            SetTimeout(S.fadeTime, function()
                 if GetPlayerPed(id) ~= 0 then
                     SetPlayerRoutingBucket(id, toFloor.bucket)
                 end
@@ -306,7 +355,6 @@ lib.callback.register('lf_elevatore:requestMove', function(source, name, fromInd
     end
 
     logUsage(source, name, toFloor)
-    -- Public server event for other resources (heists, achievements, etc.)
     TriggerEvent('lf_elevatore:playerMoved', source, name, fromIndex, toIndex, passengers)
 
     return true
@@ -362,21 +410,190 @@ exports('removeElevator', function(name)
     return existed ~= nil
 end)
 
--- In-game creator / editor ---------------------------------------------------
+-- Admin layer ----------------------------------------------------------------
+
+local function isAdmin(source)
+    return source == 0 or IsPlayerAceAllowed(source, 'command.elevator')
+end
+
+local function nonEmpty(s)
+    return (type(s) == 'string' and s ~= '') and s or nil
+end
+
+local function normalizeGroups(t)
+    if type(t) ~= 'table' then return nil end
+    local out = {}
+    for k, v in pairs(t) do
+        if type(k) == 'string' and k ~= '' then out[k] = tonumber(v) or 0 end
+    end
+    return next(out) ~= nil and out or nil
+end
+
+local function normalizeList(t)
+    if type(t) ~= 'table' then return nil end
+    local out = {}
+    for _, v in ipairs(t) do
+        local s = nonEmpty(type(v) == 'string' and (v:gsub('^%s*(.-)%s*$', '%1')) or nil)
+        if s then out[#out + 1] = s end
+    end
+    return #out > 0 and out or nil
+end
+
+local function normalizeFloor(f)
+    if type(f) ~= 'table' or type(f.coords) ~= 'table' then return nil end
+    local c = f.coords
+    if not (tonumber(c.x) and tonumber(c.y) and tonumber(c.z)) then return nil end
+
+    local hours
+    if f.hours and tonumber(f.hours.open) and tonumber(f.hours.close) then
+        hours = { open = math.floor(tonumber(f.hours.open)), close = math.floor(tonumber(f.hours.close)) }
+    end
+
+    local size
+    if f.size and tonumber(f.size.x) and tonumber(f.size.y) and tonumber(f.size.z) then
+        size = { x = tonumber(f.size.x), y = tonumber(f.size.y), z = tonumber(f.size.z) }
+    end
+
+    return {
+        coords = { x = tonumber(c.x), y = tonumber(c.y), z = tonumber(c.z) },
+        heading = tonumber(f.heading) or 0.0,
+        level = nonEmpty(f.level) or 'Floor',
+        label = nonEmpty(f.label),
+        pin = nonEmpty(f.pin),
+        bucket = tonumber(f.bucket),
+        jobs = normalizeGroups(f.jobs),
+        gangs = normalizeGroups(f.gangs),
+        items = normalizeList(f.items),
+        owners = normalizeList(f.owners),
+        consumeItem = (f.consumeItem == true) or nil,
+        requireAll = (f.requireAll == true) or nil,
+        hours = hours,
+        size = size,
+    }
+end
+
+-- Full (unsanitized) snapshot for the admin panel only.
+lib.callback.register('lf_elevatore:admin:getAll', function(source)
+    if not isAdmin(source) then return false end
+
+    local out = {}
+    for name, floors in pairs(elevators) do
+        local fl = {}
+        for i, floor in ipairs(floors) do fl[i] = floor end
+        out[name] = {
+            label = floors.label,
+            groupTravel = floors.groupTravel,
+            source = sourceOf[name],
+            locked = locked[name] or false,
+            floors = fl,
+        }
+    end
+
+    return {
+        elevators = out,
+        settings = S,
+        framework = Bridge.Framework or 'none',
+    }
+end)
+
+lib.callback.register('lf_elevatore:admin:saveElevator', function(source, payload)
+    if not isAdmin(source) then return false, 'no_perm' end
+    if type(payload) ~= 'table' or not nonEmpty(payload.name) then return false, 'invalid' end
+
+    if sourceOf[payload.name] == 'api' then return false, 'api_readonly' end
+
+    local floors = {}
+    if type(payload.floors) == 'table' then
+        for _, f in ipairs(payload.floors) do
+            local nf = normalizeFloor(f)
+            if nf then floors[#floors + 1] = nf end
+        end
+    end
+    if #floors < 2 then return false, 'need_floors' end
+
+    savedElevators[payload.name] = {
+        label = nonEmpty(payload.label) or payload.name,
+        groupTravel = payload.groupTravel == false and false or nil,
+        floors = floors,
+    }
+    hidden[payload.name] = nil -- un-hide if it was a deleted config elevator
+    persistSaved()
+    persistSettings()
+    rebuildElevators()
+    broadcastRefresh()
+    return true
+end)
+
+lib.callback.register('lf_elevatore:admin:deleteElevator', function(source, name)
+    if not isAdmin(source) then return false, 'no_perm' end
+    if not elevators[name] then return false, 'invalid' end
+
+    local kind = sourceOf[name]
+    if kind == 'api' then return false, 'api_readonly' end
+
+    savedElevators[name] = nil
+    if kind == 'config' or hidden[name] ~= nil then
+        hidden[name] = true -- suppress the config-defined one
+    end
+    locked[name] = nil
+    persistSaved()
+    persistSettings()
+    rebuildElevators()
+    broadcastRefresh()
+    return true
+end)
+
+lib.callback.register('lf_elevatore:admin:setLocked', function(source, name, state)
+    if not isAdmin(source) then return false, 'no_perm' end
+    if not setLocked(name, state) then return false, 'invalid' end
+    return true
+end)
+
+lib.callback.register('lf_elevatore:admin:saveSettings', function(source, newOverrides)
+    if not isAdmin(source) then return false, 'no_perm' end
+    if type(newOverrides) ~= 'table' then return false, 'invalid' end
+
+    local allowed = {
+        useTextUI = 'boolean', interactDistance = 'number', waitTime = 'number',
+        fadeTime = 'number', debug = 'boolean', shake = 'boolean',
+        groupTravelEnabled = 'boolean', groupTravelRadius = 'number',
+        loggingEnabled = 'boolean', logAllMoves = 'boolean', webhook = 'string',
+    }
+    for key, expected in pairs(allowed) do
+        local v = newOverrides[key]
+        if v ~= nil and type(v) == expected then
+            overrides[key] = v
+        end
+    end
+
+    persistSettings()
+    S = effective()
+    broadcastSettings()
+    return true, S
+end)
+
+RegisterNetEvent('lf_elevatore:admin:teleport', function(name, index)
+    local src = source
+    if not isAdmin(src) then return end
+    local floors = elevators[name]
+    local floor = floors and floors[tonumber(index)]
+    if not floor then return end
+    TriggerClientEvent('lf_elevatore:client:teleport', src, floor.coords, floor.heading or 0.0)
+end)
+
+-- Legacy /elevator command (still works) + opens the admin panel with no args --
 
 local function parseGroups(str)
     if type(str) ~= 'string' or str == '' then return nil end
     local out = {}
     for entry in str:gmatch('[^,]+') do
         local name, grade = entry:match('^%s*([%w_]+)%s*:?%s*(%d*)%s*$')
-        if name then
-            out[name] = tonumber(grade) or 0
-        end
+        if name then out[name] = tonumber(grade) or 0 end
     end
     return next(out) ~= nil and out or nil
 end
 
-local function parseList(str)
+local function parseStringList(str)
     if type(str) ~= 'string' or str == '' then return nil end
     local out = {}
     for entry in str:gmatch('[^,]+') do
@@ -405,14 +622,14 @@ RegisterNetEvent('lf_elevatore:server:addFloor', function(form)
         coords = { x = round(coords.x), y = round(coords.y), z = round(coords.z) },
         heading = round(GetEntityHeading(ped)),
         level = form.level,
-        label = (type(form.label) == 'string' and form.label ~= '') and form.label or nil,
-        pin = (type(form.pin) == 'string' and form.pin ~= '') and form.pin or nil,
+        label = nonEmpty(form.label),
+        pin = nonEmpty(form.pin),
         bucket = tonumber(form.bucket),
         jobs = parseGroups(form.jobs),
         gangs = parseGroups(form.gangs),
-        items = parseList(form.items),
-        owners = parseList(form.owners),
-        consumeItem = form.consumeItem == true or form.consumeItem == 'true' or nil,
+        items = parseStringList(form.items),
+        owners = parseStringList(form.owners),
+        consumeItem = form.consumeItem == true or nil,
         hours = hours,
     }
 
@@ -420,14 +637,19 @@ RegisterNetEvent('lf_elevatore:server:addFloor', function(form)
 end)
 
 lib.addCommand('elevator', {
-    help = 'Manage lf_elevatore elevators',
+    help = 'Open the elevator admin panel (or manage via subcommands)',
     restricted = Config.AdminGroup,
     params = {
-        { name = 'action', type = 'string', help = 'create|add|removefloor|save|cancel|edit|delete|lock|unlock|list' },
-        { name = 'name', type = 'string', help = 'Elevator name, or floor index for removefloor', optional = true },
+        { name = 'action', type = 'string', help = 'leave empty to open the panel; or create|save|cancel|delete|lock|unlock|list', optional = true },
+        { name = 'name', type = 'string', help = 'Elevator name', optional = true },
     },
 }, function(source, args)
-    local action = args.action:lower()
+    local action = args.action and args.action:lower() or nil
+
+    if not action then
+        TriggerClientEvent('lf_elevatore:client:openAdmin', source)
+        return
+    end
 
     if action == 'create' then
         if not args.name then return notify(source, 'creator_need_name', 'error') end
@@ -435,32 +657,18 @@ lib.addCommand('elevator', {
         sessions[source] = { name = args.name, floors = {} }
         notify(source, 'creator_started', 'success', args.name)
 
-    elseif action == 'edit' then
-        if not args.name then return notify(source, 'creator_need_name', 'error') end
-        local target = savedElevators[args.name]
-        if not target then return notify(source, 'creator_not_saved', 'error', args.name) end
-        local floorsCopy = json.decode(json.encode(target.floors))
-        sessions[source] = { name = args.name, label = target.label, floors = floorsCopy, editing = true }
-        notify(source, 'creator_editing', 'success', args.name, #floorsCopy)
-
     elseif action == 'add' then
         if not sessions[source] then return notify(source, 'creator_no_session', 'error') end
         TriggerClientEvent('lf_elevatore:client:floorDialog', source, #sessions[source].floors + 1)
-
-    elseif action == 'removefloor' then
-        local session = sessions[source]
-        if not session then return notify(source, 'creator_no_session', 'error') end
-        local idx = tonumber(args.name)
-        if not idx or not session.floors[idx] then return notify(source, 'creator_bad_index', 'error') end
-        table.remove(session.floors, idx)
-        notify(source, 'creator_floor_removed', 'success', idx, #session.floors)
 
     elseif action == 'save' then
         local session = sessions[source]
         if not session then return notify(source, 'creator_no_session', 'error') end
         if #session.floors < 2 then return notify(source, 'creator_need_floors', 'error') end
-        savedElevators[session.name] = { label = session.label or session.name, floors = session.floors }
+        savedElevators[session.name] = { label = session.name, floors = session.floors }
+        hidden[session.name] = nil
         persistSaved()
+        persistSettings()
         sessions[source] = nil
         rebuildElevators()
         broadcastRefresh()
@@ -473,9 +681,12 @@ lib.addCommand('elevator', {
 
     elseif action == 'delete' then
         if not args.name then return notify(source, 'creator_need_name', 'error') end
-        if not savedElevators[args.name] then return notify(source, 'creator_not_saved', 'error', args.name) end
+        if not elevators[args.name] then return notify(source, 'creator_not_found', 'error', args.name) end
         savedElevators[args.name] = nil
+        if sourceOf[args.name] == 'config' then hidden[args.name] = true end
+        locked[args.name] = nil
         persistSaved()
+        persistSettings()
         rebuildElevators()
         broadcastRefresh()
         notify(source, 'creator_deleted', 'success', args.name)

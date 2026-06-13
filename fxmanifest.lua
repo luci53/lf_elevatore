@@ -3,8 +3,8 @@ game 'gta5'
 lua54 'yes'
 
 author 'lucifer'
-description 'Framework-agnostic elevator script for QBox, QBCore and ESX, powered by ox_lib'
-version '3.1.0'
+description 'Framework-agnostic elevator script for QBox, ox_core, QBCore and ESX, powered by ox_lib'
+version '3.2.0'
 
 shared_scripts {
     '@ox_lib/init.lua',
@@ -13,6 +13,7 @@ shared_scripts {
 client_scripts {
     'client/bridge.lua',
     'client/client.lua',
+    'client/admin.lua',
 }
 
 server_scripts {
@@ -22,6 +23,11 @@ server_scripts {
     'server/version.lua',
 }
 
+ui_page 'html/index.html'
+
 files {
     'locales/*.json',
+    'html/index.html',
+    'html/style.css',
+    'html/app.js',
 }

@@ -293,6 +293,36 @@ RegisterNetEvent('lf_elevatore:client:refresh', function(elevators)
     buildAll()
 end)
 
+RegisterNetEvent('lf_elevatore:client:settings', function(settings)
+    if not Settings then return end
+    Settings = settings
+    teardown()
+    buildAll()
+end)
+
+-- Admin convenience teleport (server validates the requester is an admin).
+RegisterNetEvent('lf_elevatore:client:teleport', function(coords, heading)
+    if moving then return end
+    moving = true
+    local ped = cache.ped
+    DoScreenFadeOut(Settings.fadeTime)
+    while not IsScreenFadedOut() do Wait(50) end
+
+    FreezeEntityPosition(ped, true)
+    RequestCollisionAtCoord(coords.x, coords.y, coords.z)
+    SetEntityCoords(ped, coords.x, coords.y, coords.z, false, false, false, false)
+    SetEntityHeading(ped, heading or 0.0)
+
+    local timeout = GetGameTimer() + 5000
+    while not HasCollisionLoadedAroundEntity(ped) and GetGameTimer() < timeout do
+        Wait(50)
+    end
+    FreezeEntityPosition(ped, false)
+
+    DoScreenFadeIn(Settings.fadeTime)
+    moving = false
+end)
+
 RegisterNetEvent('lf_elevatore:client:notify', function(key, notifyType, ...)
     lib.notify({ description = locale(key, ...), type = notifyType or 'inform' })
 end)
