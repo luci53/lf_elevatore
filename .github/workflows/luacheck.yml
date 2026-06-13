@@ -13,7 +13,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install luacheck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lua5.4 luarocks
+          sudo luarocks install luacheck
+
       - name: Run luacheck
-        uses: lunarmodules/luacheck@v1
-        with:
-          args: . --formatter plain
+        run: |
+          set +e
+          luacheck . --formatter plain | tee result.txt
+          code=${PIPESTATUS[0]}
+          echo "luacheck exit code: $code"
+          while IFS= read -r line; do
+            [ -n "$line" ] && echo "::error::$line"
+          done < result.txt
+          exit $code
