@@ -3,6 +3,10 @@ std = 'lua54'
 max_line_length = false
 self = false
 
+-- fxmanifest.lua is the CfxLua manifest DSL (fx_version, game, *_scripts ...),
+-- not a normal Lua module — don't lint it.
+exclude_files = { 'fxmanifest.lua' }
+
 -- Suppress stylistic / framework-idiomatic noise while keeping the checks that
 -- matter (syntax errors, undefined globals 11x, unused locals 211).
 -- Entries are Lua patterns matched against warning codes.
