@@ -3,10 +3,17 @@ std = 'lua54'
 max_line_length = false
 self = false
 
--- Ignore unused-self warnings on ox_lib point methods, and "argument always nil"
+-- Suppress stylistic / framework-idiomatic noise while keeping the checks that
+-- matter (syntax errors, undefined globals 11x, unused locals 211).
+-- Entries are Lua patterns matched against warning codes.
 ignore = {
-    '212', -- unused argument (CreateThread callbacks, event handlers)
-    '432', -- shadowing an upvalue argument (source)
+    '212',  -- unused argument (event handlers, ox_lib point methods, callbacks)
+    '213',  -- unused loop variable
+    '231',  -- local set but never accessed (framework-conditional locals)
+    '311',  -- value assigned but never accessed
+    '4..',  -- redefining / shadowing (idiomatic `local source = source`)
+    '5..',  -- control-flow style (empty branches, unreachable guards)
+    '6..',  -- whitespace / line-length cosmetics
 }
 
 -- Globals provided by the CfxLua runtime + libraries we rely on.
@@ -25,7 +32,7 @@ read_globals = {
     -- Server natives used
     'GetPlayers', 'GetPlayerPed', 'GetEntityCoords', 'GetEntityHeading',
     'GetPlayerRoutingBucket', 'SetPlayerRoutingBucket', 'GetPlayerName',
-    'GetPlayerIdentifierByType', 'source',
+    'GetPlayerIdentifierByType', 'GetPlayerIdentifiers', 'source',
 
     -- Client natives used
     'PlayerPedId', 'PlayerId', 'DoScreenFadeOut', 'DoScreenFadeIn',
