@@ -19,6 +19,7 @@ server_scripts {
     'config.lua',
     'server/bridge.lua',
     'server/main.lua',
+    'server/version.lua',
 }
 
 files {

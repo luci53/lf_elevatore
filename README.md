@@ -1,5 +1,8 @@
 # lf_elevatore
 
+[![luacheck](https://github.com/luci53/lf_elevatore/actions/workflows/luacheck.yml/badge.svg)](https://github.com/luci53/lf_elevatore/actions/workflows/luacheck.yml)
+[![license](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 Create your own elevators anywhere on your FiveM server — in the config **or live in-game with a command**. Framework-agnostic: works on **QBox**, **QBCore** and **ESX** with automatic detection.
 
 ## Features
@@ -93,6 +96,14 @@ Floors with no restrictions are public. Old v1 configs (including `jobAndItem`) 
 ## Translations
 
 Copy `locales/en.json` to `locales/<lang>.json` and translate. The language follows the `ox:locale` convar (`setr ox:locale es`).
+
+## Update notifications
+
+On startup the server prints a one-line notice if a newer release is on GitHub. Turn it off with:
+
+```cfg
+setr lf_elevatore:versionCheck false
+```
 
 ## Support
 
