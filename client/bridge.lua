@@ -1,10 +1,12 @@
 -- Client-side framework bridge. Only used for menu UX (graying out locked
--- floors) - real access checks happen on the server.
+-- floors) - real access checks always happen on the server.
 Bridge = {}
 
 local framework
 if GetResourceState('qbx_core') == 'started' then
     framework = 'qbox'
+elseif GetResourceState('ox_core') == 'started' then
+    framework = 'oxcore'
 elseif GetResourceState('qb-core') == 'started' then
     framework = 'qbcore'
 elseif GetResourceState('es_extended') == 'started' then
@@ -30,22 +32,33 @@ local function getPlayerData()
     end
 end
 
----@return string? jobName, number? grade
-function Bridge.GetJob()
-    local data = getPlayerData()
-    if not data or not data.job then return end
-    if framework == 'esx' then
-        return data.job.name, data.job.grade
+---@param groupName string
+---@return number? grade  nil = unknown/not a member (ox_core defers to server)
+function Bridge.GetGroupGrade(groupName)
+    if framework == 'oxcore' then
+        return nil -- groups not resolved client-side; server is authoritative
+    elseif framework == 'esx' then
+        local data = getPlayerData()
+        if data and data.job and data.job.name == groupName then
+            return data.job.grade
+        end
+        return nil
+    else -- qbox / qbcore
+        local data = getPlayerData()
+        if not data then return nil end
+        if data.job and data.job.name == groupName then
+            return data.job.grade and data.job.grade.level or 0
+        end
+        if data.gang and data.gang.name == groupName then
+            return data.gang.grade and data.gang.grade.level or 0
+        end
+        return nil
     end
-    return data.job.name, data.job.grade.level
 end
 
----@return string? gangName, number? grade
-function Bridge.GetGang()
-    if framework == 'esx' then return end
-    local data = getPlayerData()
-    if not data or not data.gang then return end
-    return data.gang.name, data.gang.grade.level
+---@return boolean usesServerOnly  true when client cannot resolve access (ox_core)
+function Bridge.DefersToServer()
+    return framework == 'oxcore' or framework == nil
 end
 
 ---@param item string

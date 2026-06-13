@@ -6,35 +6,30 @@ local zones = {}    -- ox_target ids / qb-target zone names
 local points = {}   -- lib.points handles
 local moving = false
 
--- UX-only mirror of the server-side check, used to gray out locked floors
+-- UX-only mirror of the server-side check, used to gray out locked floors.
+-- ox_core defers entirely to the server (groups aren't resolved client-side).
 local function hasFloorAccess(floor)
+    if Bridge.DefersToServer() then return true end
+
     local needsJob = floor.jobs and next(floor.jobs) ~= nil
     local needsGang = floor.gangs and next(floor.gangs) ~= nil
     local needsItem = floor.items and next(floor.items) ~= nil
+    local ownerOnly = floor.ownerOnly
 
+    -- Can't resolve owner identity reliably client-side; let the server decide.
+    if ownerOnly and not (needsJob or needsGang or needsItem) then return true end
     if not (needsJob or needsGang or needsItem) then return true end
 
-    local hasJob = false
-    if needsJob then
-        local job, grade = Bridge.GetJob()
-        for name, minGrade in pairs(floor.jobs) do
-            if job == name and (grade or 0) >= minGrade then
-                hasJob = true
-                break
-            end
+    local function matches(groupTable)
+        for name, minGrade in pairs(groupTable) do
+            local grade = Bridge.GetGroupGrade(name)
+            if grade and grade >= minGrade then return true end
         end
+        return false
     end
 
-    local hasGang = false
-    if needsGang then
-        local gang, grade = Bridge.GetGang()
-        for name, minGrade in pairs(floor.gangs) do
-            if gang == name and (grade or 0) >= minGrade then
-                hasGang = true
-                break
-            end
-        end
-    end
+    local hasJob = needsJob and matches(floor.jobs) or false
+    local hasGang = needsGang and matches(floor.gangs) or false
 
     local hasItem = false
     if needsItem then
@@ -53,10 +48,15 @@ local function hasFloorAccess(floor)
     return (needsJob and hasJob) or (needsGang and hasGang) or (needsItem and hasItem)
 end
 
-local function playArriveSound()
-    local sound = Settings.sounds and Settings.sounds.arrive
-    if not sound then return end
+local function floorHint(floor)
+    if floor.hours and floor.hours.open and floor.hours.close then
+        return locale('floor_hours', floor.hours.open, floor.hours.close)
+    end
+    return floor.label
+end
 
+local function playSound(sound)
+    if not sound then return end
     if sound.type == 'native' then
         PlaySoundFrontend(-1, sound.name, sound.set, true)
     elseif sound.type == 'interact-sound' then
@@ -87,14 +87,29 @@ local function openFloorMenu(elevatorName, currentIndex)
     local floors = Elevators and Elevators[elevatorName]
     if not floors then return end
 
+    if floors.locked then
+        lib.notify({ description = locale('locked'), type = 'error' })
+        return
+    end
+
     local options = {}
     for index, floor in ipairs(floors) do
         local isHere = index == currentIndex
         local allowed = hasFloorAccess(floor)
+        local icon = 'elevator'
+        if isHere then
+            icon = 'location-dot'
+        elseif not allowed then
+            icon = 'lock'
+        elseif floor.pin then
+            icon = 'key'
+        elseif floor.ownerOnly then
+            icon = 'user-lock'
+        end
         options[#options + 1] = {
             title = floor.level,
-            description = isHere and locale('you_are_here') or floor.label,
-            icon = isHere and 'location-dot' or (not allowed and 'lock' or (floor.pin and 'key' or 'elevator')),
+            description = isHere and locale('you_are_here') or floorHint(floor),
+            icon = icon,
             disabled = isHere or not allowed,
             onSelect = function()
                 requestMove(elevatorName, currentIndex, index, floor)
@@ -113,6 +128,22 @@ end
 -- Kept for v1 compatibility (external triggers)
 RegisterNetEvent('lf_elevator:showFloors', function(data)
     openFloorMenu(data.elevator, data.level)
+end)
+
+-- Public client export: open an elevator's menu from the nearest floor.
+exports('openElevator', function(elevatorName)
+    local floors = Elevators and Elevators[elevatorName]
+    if not floors then return false end
+    local coords = GetEntityCoords(cache.ped)
+    local nearestIndex, nearestDist = 1, math.huge
+    for index, floor in ipairs(floors) do
+        local d = #(coords - floor.coords)
+        if d < nearestDist then
+            nearestDist, nearestIndex = d, index
+        end
+    end
+    openFloorMenu(elevatorName, nearestIndex)
+    return true
 end)
 
 -- Zone / point construction -----------------------------------------------------
@@ -228,6 +259,7 @@ RegisterNetEvent('lf_elevatore:client:move', function(destination)
     DoScreenFadeOut(Settings.fadeTime)
     while not IsScreenFadedOut() do Wait(50) end
 
+    playSound(Settings.sounds and Settings.sounds.travel)
     Wait(Settings.waitTime * 1000)
 
     FreezeEntityPosition(ped, true)
@@ -241,9 +273,17 @@ RegisterNetEvent('lf_elevatore:client:move', function(destination)
     end
     FreezeEntityPosition(ped, false)
 
-    playArriveSound()
+    if Settings.shake then
+        ShakeGameplayCam('SMALL_EXPLOSION_SHAKE', 0.12)
+        SetTimeout(400, function() StopGameplayCamShaking(true) end)
+    end
+
+    playSound(Settings.sounds and Settings.sounds.arrive)
     DoScreenFadeIn(Settings.fadeTime)
     moving = false
+
+    -- Public client event for other resources.
+    TriggerEvent('lf_elevatore:arrived', destination.elevator, destination.level, destination.coords)
 end)
 
 RegisterNetEvent('lf_elevatore:client:refresh', function(elevators)
@@ -266,6 +306,10 @@ RegisterNetEvent('lf_elevatore:client:floorDialog', function(floorNumber)
         { type = 'input', label = locale('creator_field_jobs'), description = 'police:0, ambulance:2', icon = 'briefcase' },
         { type = 'input', label = locale('creator_field_gangs'), description = 'ballas:0', icon = 'people-group' },
         { type = 'input', label = locale('creator_field_items'), description = 'keycard, vip_card', icon = 'box' },
+        { type = 'checkbox', label = locale('creator_field_consume') },
+        { type = 'input', label = locale('creator_field_owners'), description = locale('creator_field_owners_desc'), icon = 'id-card' },
+        { type = 'number', label = locale('creator_field_open'), icon = 'clock', min = 0, max = 23 },
+        { type = 'number', label = locale('creator_field_close'), icon = 'clock', min = 0, max = 23 },
     })
     if not input then return end
 
@@ -277,6 +321,10 @@ RegisterNetEvent('lf_elevatore:client:floorDialog', function(floorNumber)
         jobs = input[5],
         gangs = input[6],
         items = input[7],
+        consumeItem = input[8],
+        owners = input[9],
+        open = input[10],
+        close = input[11],
     })
 end)
 

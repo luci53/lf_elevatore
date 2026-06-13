@@ -36,7 +36,8 @@ read_globals = {
     -- Server natives used
     'GetPlayers', 'GetPlayerPed', 'GetEntityCoords', 'GetEntityHeading',
     'GetPlayerRoutingBucket', 'SetPlayerRoutingBucket', 'GetPlayerName',
-    'GetPlayerIdentifierByType', 'GetPlayerIdentifiers', 'source',
+    'GetPlayerIdentifierByType', 'GetPlayerIdentifiers',
+    'GetNumPlayerIdentifiers', 'GetPlayerIdentifier', 'source',
 
     -- Client natives used
     'PlayerPedId', 'PlayerId', 'DoScreenFadeOut', 'DoScreenFadeIn',

@@ -27,11 +27,29 @@ Config.GroupTravel = {
 	radius = 3.0,					-- meters around the requester
 }
 
--- Sound played on arrival. Pick ONE of the formats below, or set arrive = false.
+-- Sounds. Each is { type = 'native', name, set } or { type = 'interact-sound', name, volume }, or false.
 Config.Sounds = {
-	arrive = { type = 'native', name = 'PICK_UP', set = 'HUD_FRONTEND_DEFAULT_SOUNDSET' },
+	arrive = { type = 'native', name = 'PICK_UP', set = 'HUD_FRONTEND_DEFAULT_SOUNDSET' },	-- on arrival
+	travel = false,																			-- looped/started while "travelling" (false = none)
 	-- arrive = { type = 'interact-sound', name = 'ding', volume = 0.3 },	-- requires interact-sound resource
-	-- arrive = false,
+}
+
+Config.ArrivalShake = true			-- subtle camera shake on arrival for immersion
+
+-- Time-restricted floors (the `hours` floor option). By default the in-game
+-- floor hours are compared against the server's real-world hour. To use your
+-- own time source (e.g. an in-game clock resource), return 0-23 from getHour.
+Config.BusinessHours = {
+	getHour = nil,	-- e.g. function() return GlobalState.gameHour end
+}
+
+-- Usage logging. Logs whenever a restricted/PIN/owner floor is used (or every
+-- move if logAllMoves = true).
+Config.Logging = {
+	enabled = false,
+	logAllMoves = false,
+	useOxLib = false,	-- send through ox_lib's lib.logger (configure ox:logger convar)
+	webhook = '',		-- Discord webhook URL (leave empty to skip)
 }
 
 -- Ace principal allowed to use the in-game /elevator creator command.
@@ -48,8 +66,12 @@ Config.AdminGroup = 'group.admin'
 
 	Restrictions (all optional - floor is public when none are set):
 	jobs       - { [jobName] = minGrade }   e.g. { police = 0, ambulance = 2 }
-	gangs      - { [gangName] = minGrade }  QBox/QBCore only
+	gangs      - { [gangName] = minGrade }  QBox/QBCore (ox_core treats both as groups)
 	items      - { 'item_a', 'item_b' }     player needs at least one of these
+	owners     - { 'CITIZENID', 'license:abc' }  only these identities may use it
+	consumeItem- true = remove 1 of the matched access item on a successful trip
+	hours      - { open = 9, close = 17 }   floor only usable in this window
+	             (overnight ok, e.g. { open = 22, close = 6 }); see Config.BusinessHours
 	requireAll - true = must pass EVERY restriction type set above
 	             false/nil = passing ANY restriction type is enough
 	             ('jobAndItem' from v1 configs is still accepted)
