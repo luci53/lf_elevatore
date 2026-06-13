@@ -4,7 +4,7 @@ lua54 'yes'
 
 author 'lucifer'
 description 'Framework-agnostic elevator script for QBox, QBCore and ESX, powered by ox_lib'
-version '3.0.0'
+version '3.1.0'
 
 shared_scripts {
     '@ox_lib/init.lua',
